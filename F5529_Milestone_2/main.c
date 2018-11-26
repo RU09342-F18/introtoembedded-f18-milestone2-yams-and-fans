@@ -67,18 +67,23 @@
 //******************************************************************************
 
 #include <msp430.h>
+#include <math.h>
+float steady;
+float ADC_Voltage;
+float ADC_Temp;
+int Temp;
+void ADC_Setup();
+void PWM_Setup();
+void input_TEMP();
 
-int main(void)
+void ADC_Setup()
 {
-    WDTCTL = WDTPW + WDTHOLD;                 // Stop WDT
-    PWM_Setup();
-    while (1)
-    {
-        ADC12CTL0 |= ADC12SC;                   // Start sampling/conversion
-
-        __bis_SR_register(LPM3_bits);     // LPM0, ADC12_ISR will force exit
-        __no_operation();                       // For debugger
-    }
+    ADC12CTL0 = ADC12SHT02 + ADC12ON;         // Sampling time, ADC12 on
+    ADC12CTL1 = ADC12SHP;                     // Use sampling timer
+    ADC12IE = 0x01;                           // Enable interrupt
+    ADC12CTL0 |= ADC12ENC;
+    P6SEL |= 0x01;                            // P6.0 ADC option select
+    P1DIR |= 0x01;
 }
 
 void PWM_Setup()
@@ -91,25 +96,30 @@ void PWM_Setup()
     TA1CCTL1 = OUTMOD_7; // CCR1 toggle/set
 }
 
-void ADC_Setup()
-{
-    ADC12CTL0 = ADC12SHT02 + ADC12ON;         // Sampling time, ADC12 on
-    ADC12CTL1 = ADC12SHP;                     // Use sampling timer
-    ADC12IE = 0x01;                           // Enable interrupt
-    ADC12CTL0 |= ADC12ENC;                    // Enable Conversion
-    P6SEL |= 0x01;                            // P6.0 ADC option select
-    P1DIR |= 0x01;                            // P1.0 output
 
+void inputTEMP()
+{
+    ADC_Temp = (ADC_Voltage - .424)/.00625;
+    Temp = (int)ADC_Temp;
 }
 
-#if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
+int main(void)
+{
+    WDTCTL = WDTPW + WDTHOLD;                 // Stop WDT
+    PWM_Setup();
+    ADC_Setup();
+    while (1)
+    {
+        ADC12CTL0 |= ADC12SC;                   // Start sampling/conversion
+        ADC_Voltage = ADC12MEM0;
+        inputTEMP();
+        __bis_SR_register(LPM0_bits + GIE);
+    }
+}
+
 #pragma vector = ADC12_VECTOR
 __interrupt void ADC12_ISR(void)
-#elif defined(__GNUC__)
-void __attribute__ ((interrupt(ADC12_VECTOR))) ADC12_ISR (void)
-#else
-#error Compiler not supported!
-#endif
+
 {
   switch(__even_in_range(ADC12IV,34))
   {
@@ -123,6 +133,7 @@ void __attribute__ ((interrupt(ADC12_VECTOR))) ADC12_ISR (void)
       P1OUT &= ~BIT0;                       // P1.0 = 0
 
     __bic_SR_register_on_exit(LPM0_bits);   // Exit active CPU
+    break;
   case  8: break;                           // Vector  8:  ADC12IFG1
   case 10: break;                           // Vector 10:  ADC12IFG2
   case 12: break;                           // Vector 12:  ADC12IFG3
