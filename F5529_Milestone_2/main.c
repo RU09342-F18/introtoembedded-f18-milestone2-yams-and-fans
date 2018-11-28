@@ -1,11 +1,11 @@
 #include <msp430.h>
 #include <math.h>
 
-float current_TEMP;
-float ADC_Voltage;
-float ADC_Temp;
-const perBit = (3.3/4096);
-float desired_TEMP;
+unsigned int current_TEMP = 0;
+float ADC_Voltage = 0;
+float ADC_Temp = 0;
+float perBit = 3.3/4096;
+float desired_TEMP = 0;
 
 void ADC_Setup();
 void PWM_Setup();
@@ -14,18 +14,18 @@ void UART_Setup();
 
 void UART_Setup()
 {
-    P3SEL |= BIT3+BIT4;                       // P3.3,4 = USCI_A0 TXD/RXD
-    UCA0CTL1 |= UCSWRST;                      // **Put state machine in reset**
-    UCA0CTL1 |= UCSSEL_2;                     // SMCLK
+    P4SEL |= BIT4+BIT5;                       // P3.3,4 = USCI_A0 TXD/RXD
+    UCA1CTL1 |= UCSWRST;                      // **Put state machine in reset**
+    UCA1CTL1 |= UCSSEL_2;                     // SMCLK
     // Baud Rate calculation
     // 1000000/9600 = 104.1667
     // Fractional portion = 0.1667
     // Use Table 24-5 in Family User Guide
-    UCA0BR0 = 104;                             // 1MHz 115200 (see User's Guide)
-    UCA0BR1 = 0;                              // 1MHz 115200
-    UCA0MCTL |= UCBRS_3 + UCBRF_0;            // Modulation UCBRSx=1, UCBRFx=0
-    UCA0CTL1 &= ~UCSWRST;                     // **Initialize USCI state machine**
-    UCA0IE |= UCTXIE;                         // Enable USCI_A0 TX interrupt
+    UCA1BR0 = 104;                             // 1MHz 115200 (see User's Guide)
+    UCA1BR1 = 0;                              // 1MHz 115200
+    UCA1MCTL |= UCBRS_1 + UCBRF_0;            // Modulation UCBRSx=1, UCBRFx=0
+    UCA1CTL1 &= ~UCSWRST;                     // **Initialize USCI state machine**
+    UCA1IE |= UCRXIE;                         // Enable USCI_A0 TX interrupt
 }
 
 void ADC_Setup()
@@ -33,6 +33,7 @@ void ADC_Setup()
     ADC12CTL0 = ADC12SHT02 + ADC12ON;         // Sampling time, ADC12 on
     ADC12CTL1 = ADC12SHP;                     // Use sampling timer
     ADC12IE = 0x01;                           // Enable interrupt
+
     ADC12CTL0 |= ADC12ENC;
     P6SEL |= 0x01;                            // P6.0 ADC option select
 }
@@ -50,6 +51,7 @@ void PWM_Setup()
 
 void inputTEMP()
 {
+    ADC_Voltage = ADC12MEM0 * perBit;
     ADC_Temp = (ADC_Voltage - .424)/.00625;
     current_TEMP = (int)ADC_Temp;
 }
@@ -68,8 +70,7 @@ int main(void)
     while (1)
     {
         ADC12CTL0 |= ADC12SC;                   // Start sampling/conversion
-        ADC_Voltage = ADC12MEM0 * perBit;
-        __bis_SR_register(GIE);
+        __bis_SR_register(LPM0_bits + GIE);
     }
 }
 
@@ -83,8 +84,9 @@ __interrupt void ADC12_ISR(void)
   case  2: break;                           // Vector  2:  ADC overflow
   case  4: break;                           // Vector  4:  ADC timing overflow
   case  6:                                  // Vector  6:  ADC12IFG0
-    inputTEMP();
-    compareTEMP();
+      inputTEMP();
+      UCA1TXBUF = current_TEMP;
+ //   compareTEMP();
     __bic_SR_register_on_exit(LPM0_bits);   // Exit active CPU
     break;
   case  8: break;                           // Vector  8:  ADC12IFG1
@@ -105,26 +107,25 @@ __interrupt void ADC12_ISR(void)
   }
 }
 
-#pragma vector=USCI_A0_VECTOR
-__interrupt void USCI_A0_ISR(void)
+#pragma vector=USCI_A1_VECTOR
+__interrupt void USCI_A1_ISR(void)
 {
-  switch(__even_in_range(UCA0IV,4))
+
+
+    switch(__even_in_range(UCA1IV,4))
   {
   case 0:break;                             // Vector 0 - no interrupt
   case 2:                                   // Vector 2 - RXIFG
-    while (!(UCA0IFG & UCTXIFG));             // USCI_A0 TX buffer ready?
-    UCA0IFG &= ~UCTXIFG; //Clears TX flag interrupt
-    UCA0TXBUF = ADC_Temp;                  //Current temp read from Tx buffer
+    while (!(UCA1IFG & UCRXIFG));             // USCI_A0 TX buffer ready?
+    UCA1IFG &= ~UCRXIFG; //Clears TX flag interrupt
+    UCA1RXBUF = desired_TEMP;                  //Current temp read from Tx buffer
     break;
   case 4:break;                             // Vector 4 - TXIFG
   default: break;
-
-  if (UCA0IFG & UCRXIFG)
-  {
-      UCA0IFG &= ~UCRXIFG;
-      UCA0RXBUF = desired_TEMP;
   }
-
+  if (UCA1IFG & UCRXIFG)
+  {
+      UCA1IFG &= ~UCRXIFG;
+      UCA1RXBUF = desired_TEMP;
   }
 }
-
