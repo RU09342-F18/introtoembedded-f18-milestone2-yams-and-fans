@@ -56,6 +56,42 @@ void inputTEMP()
 
 void compareTEMP()
 {
+    int error;
+    error = current_TEMP - desired_TEMP;
+
+    if (error > 50)
+    {
+        TA1CCR1 = 500;
+    }
+    else if ((error <= 50) && (error > 40))
+    {
+        TA1CCR1 = 400;
+    }
+    else if ((error <= 40) && (error > 30))
+    {
+        TA1CCR1 = 300;
+    }
+    else if ((error <= 30) && (error > 20))
+    {
+        TA1CCR1 = 200;
+    }
+    else if ((error <= 20) && (error > 10))
+    {
+        TA1CCR1 = 100;
+    }
+    else if ((error <= 10) && (error > 0))
+    {
+        TA1CCR1 = 1;
+    }
+    else if (error < 0)
+    {
+        TA1CCR1 = 0;
+    }
+}
+
+
+void compareTEMP()
+{
 
 }
 
