@@ -1,14 +1,13 @@
 #include <msp430.h>
 #include <math.h>
 
-int averager[8] = {0,0,0,0,0,0,0,0};
+unsigned int averager[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 int average_TEMP = 0;
 int current_TEMP = 0;
-int duty = 0;
 float ADC_Voltage = 0;
 float ADC_Temp = 0;
 float perBit = 3.3/4096;
-float desired_TEMP = 65;
+float desired_TEMP = 23;
 int error;
 
 void ADC_Setup();
@@ -40,17 +39,17 @@ void ADC_Setup()
 
     ADC12CTL0 |= ADC12ENC;
     P6SEL |= 0x01;                            // P6.0 ADC option select
-    P6DIR &= ~BIT0; 
+   // P6DIR &= ~BIT0;
 }
 
 void PWM_Setup()
 {
-    P2DIR |= BIT0; //P2.0 output
-    P2SEL |= BIT0; //2.0 TA1
-    TA1CTL = TASSEL_2 + MC_1 + TACLR; // SMCLK, up-down mode, clear
-    TA1CCR0 = 500; // PWM Period
-    TA1CCR1 = duty;
-    TA1CCTL1 = OUTMOD_7; // CCR1 toggle/set
+    P2DIR |= BIT5; //P2.0 output
+    P2SEL |= BIT5; //2.0 TA1
+    TA2CTL = TASSEL_2 + MC_1 + TACLR; // SMCLK, up-down mode, clear
+    TA2CCR0 = 1000; // PWM Period
+    TA2CCR2 = 200;
+    TA2CCTL2 = OUTMOD_7; // CCR1 toggle/set
 }
 
 
@@ -61,50 +60,23 @@ void inputTEMP()
     current_TEMP = (int)ADC_Temp;
 }
 
-void compareTEMP()
-{
-    error = average_TEMP - desired_TEMP;
-     if (error > 10)
-    {
-        duty = 500;
-    }
-    else if ((error <= 10) && (error > 8))
-    {
-        duty = 400;
-    }
-    else if ((error <= 8) && (error > 6))
-    {
-        duty = 300;
-    }
-    else if ((error <= 6) && (error > 4))
-    {
-        duty = 200;
-    }
-    else if ((error <= 4) && (error > 2))
-    {
-        duty = 100;
-    }
-    else if ((error <= 2) && (error > 0))
-    {
-        duty = 1;
-    }
-    else if (error < 0)
-    {
-        duty = 0;
-    }
-}
-
 int main(void)
 {
     WDTCTL = WDTPW + WDTHOLD;                 // Stop WDT
     UART_Setup();
-    duty = 0;
     PWM_Setup();
     ADC_Setup();
 
     while (1)
     {
-
+        averager[15] = averager[14];
+        averager[14] = averager[13];
+        averager[13] = averager[12];
+        averager[12] = averager[11];
+        averager[11] = averager[10];
+        averager[10] = averager[9];
+        averager[9] = averager[8];
+        averager[8] = averager[7];
         averager[7] = averager[6];
         averager[6] = averager[5];
         averager[5] = averager[4];
@@ -113,8 +85,7 @@ int main(void)
         averager[2] = averager[1];
         averager[1] = averager[0];
         averager[0] = current_TEMP;
-        average_TEMP = (averager[7] + averager[6] + averager[5] + averager[4]+ averager[3] + averager[2] + averager[1] + averager[0])/8;
-        compareTEMP();
+        average_TEMP = (averager[15] + averager[14] + averager[13] + averager[12]+ averager[11] + averager[10] + averager[9] + averager[8] + averager[7] + averager[6] + averager[5] + averager[4]+ averager[3] + averager[2] + averager[1] + averager[0])/16;
         ADC12CTL0 |= ADC12SC;                   // Start sampling/conversion
         __bis_SR_register(LPM0_bits + GIE);
     }
@@ -130,8 +101,38 @@ __interrupt void ADC12_ISR(void)
   case  2: break;                           // Vector  2:  ADC overflow
   case  4: break;                           // Vector  4:  ADC timing overflow
   case  6:                                  // Vector  6:  ADC12IFG0
-        UCA1TXBUF = average_TEMP;
         inputTEMP();
+
+        error = average_TEMP - desired_TEMP;
+
+        if (error > 4)
+        {
+            TA2CCR2 = 1000;
+        }
+        else if ((error <= 4) && (error > 0))
+        {
+            TA2CCR2 = 1000;
+        }
+        else if ((error < 0) && (error > -5))
+        {
+            TA2CCR2 = 500;
+        }
+        else if ((error <= -5) && (error > -10))
+        {
+            TA2CCR2 = 250;
+        }
+        else if (error < -10)
+        {
+            TA2CCR2 = 0;
+        }
+
+        if (UCA1TXBUF < 0)
+        {
+            UCA1TXBUF = UCA1TXBUF + 128;
+        }
+
+        UCA1TXBUF = average_TEMP;
+
         __bic_SR_register_on_exit(LPM0_bits);   // Exit active CPU
     break;
   case  8: break;                           // Vector  8:  ADC12IFG1
