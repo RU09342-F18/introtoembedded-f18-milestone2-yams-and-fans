@@ -1,11 +1,14 @@
 #include <msp430.h>
 #include <math.h>
 
-unsigned int current_TEMP = 0;
+int averager[8] = {0,0,0,0,0,0,0,0};
+int average_TEMP = 0;
+int current_TEMP = 0;
 float ADC_Voltage = 0;
 float ADC_Temp = 0;
 float perBit = 3.3/4096;
 float desired_TEMP = 0;
+int error;
 
 void ADC_Setup();
 void PWM_Setup();
@@ -36,6 +39,7 @@ void ADC_Setup()
 
     ADC12CTL0 |= ADC12ENC;
     P6SEL |= 0x01;                            // P6.0 ADC option select
+    P6IN |= BIT0;
 }
 
 void PWM_Setup()
@@ -58,7 +62,35 @@ void inputTEMP()
 
 void compareTEMP()
 {
-
+    error = average_TEMP - desired_TEMP;
+     if (error > 50)
+    {
+        TA1CCR1 = 500;
+    }
+    else if ((error <= 50) && (error > 40))
+    {
+        TA1CCR1 = 400;
+    }
+    else if ((error <= 40) && (error > 30))
+    {
+        TA1CCR1 = 300;
+    }
+    else if ((error <= 30) && (error > 20))
+    {
+        TA1CCR1 = 200;
+    }
+    else if ((error <= 20) && (error > 10))
+    {
+        TA1CCR1 = 100;
+    }
+    else if ((error <= 10) && (error > 0))
+    {
+        TA1CCR1 = 1;
+    }
+    else if (error < 0)
+    {
+        TA1CCR1 = 0;
+    }
 }
 
 int main(void)
@@ -69,6 +101,15 @@ int main(void)
     ADC_Setup();
     while (1)
     {
+        averager[7] = averager[6];
+        averager[6] = averager[5];
+        averager[5] = averager[4];
+        averager[4] = averager[3];
+        averager[3] = averager[2];
+        averager[2] = averager[1];
+        averager[1] = averager[0];
+        averager[0] = current_TEMP;
+        average_TEMP = (averager[7] + averager[6] + averager[5] + averager[4]+ averager[3] + averager[2] + averager[1] + averager[0])/8;
         ADC12CTL0 |= ADC12SC;                   // Start sampling/conversion
         __bis_SR_register(LPM0_bits + GIE);
     }
@@ -84,9 +125,8 @@ __interrupt void ADC12_ISR(void)
   case  2: break;                           // Vector  2:  ADC overflow
   case  4: break;                           // Vector  4:  ADC timing overflow
   case  6:                                  // Vector  6:  ADC12IFG0
+      UCA1TXBUF = average_TEMP;
       inputTEMP();
-      UCA1TXBUF = current_TEMP;
- //   compareTEMP();
     __bic_SR_register_on_exit(LPM0_bits);   // Exit active CPU
     break;
   case  8: break;                           // Vector  8:  ADC12IFG1
@@ -110,22 +150,5 @@ __interrupt void ADC12_ISR(void)
 #pragma vector=USCI_A1_VECTOR
 __interrupt void USCI_A1_ISR(void)
 {
-
-
-    switch(__even_in_range(UCA1IV,4))
-  {
-  case 0:break;                             // Vector 0 - no interrupt
-  case 2:                                   // Vector 2 - RXIFG
-    while (!(UCA1IFG & UCRXIFG));             // USCI_A0 TX buffer ready?
-    UCA1IFG &= ~UCRXIFG; //Clears TX flag interrupt
-    UCA1RXBUF = desired_TEMP;                  //Current temp read from Tx buffer
-    break;
-  case 4:break;                             // Vector 4 - TXIFG
-  default: break;
-  }
-  if (UCA1IFG & UCRXIFG)
-  {
-      UCA1IFG &= ~UCRXIFG;
-      UCA1RXBUF = desired_TEMP;
-  }
+    desired_TEMP = UCA1RXBUF;
 }
