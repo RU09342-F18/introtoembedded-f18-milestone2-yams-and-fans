@@ -4,10 +4,11 @@
 int averager[8] = {0,0,0,0,0,0,0,0};
 int average_TEMP = 0;
 int current_TEMP = 0;
+int duty = 0;
 float ADC_Voltage = 0;
 float ADC_Temp = 0;
 float perBit = 3.3/4096;
-float desired_TEMP = 0;
+float desired_TEMP = 65;
 int error;
 
 void ADC_Setup();
@@ -39,7 +40,7 @@ void ADC_Setup()
 
     ADC12CTL0 |= ADC12ENC;
     P6SEL |= 0x01;                            // P6.0 ADC option select
-    P6IN |= BIT0;
+    P6DIR &= ~BIT0; 
 }
 
 void PWM_Setup()
@@ -48,7 +49,7 @@ void PWM_Setup()
     P2SEL |= BIT0; //2.0 TA1
     TA1CTL = TASSEL_2 + MC_1 + TACLR; // SMCLK, up-down mode, clear
     TA1CCR0 = 500; // PWM Period
-    TA1CCR1 = 1; // CCR1 PWM duty cycle
+    TA1CCR1 = duty;
     TA1CCTL1 = OUTMOD_7; // CCR1 toggle/set
 }
 
@@ -63,33 +64,33 @@ void inputTEMP()
 void compareTEMP()
 {
     error = average_TEMP - desired_TEMP;
-     if (error > 50)
+     if (error > 10)
     {
-        TA1CCR1 = 500;
+        duty = 500;
     }
-    else if ((error <= 50) && (error > 40))
+    else if ((error <= 10) && (error > 8))
     {
-        TA1CCR1 = 400;
+        duty = 400;
     }
-    else if ((error <= 40) && (error > 30))
+    else if ((error <= 8) && (error > 6))
     {
-        TA1CCR1 = 300;
+        duty = 300;
     }
-    else if ((error <= 30) && (error > 20))
+    else if ((error <= 6) && (error > 4))
     {
-        TA1CCR1 = 200;
+        duty = 200;
     }
-    else if ((error <= 20) && (error > 10))
+    else if ((error <= 4) && (error > 2))
     {
-        TA1CCR1 = 100;
+        duty = 100;
     }
-    else if ((error <= 10) && (error > 0))
+    else if ((error <= 2) && (error > 0))
     {
-        TA1CCR1 = 1;
+        duty = 1;
     }
     else if (error < 0)
     {
-        TA1CCR1 = 0;
+        duty = 0;
     }
 }
 
@@ -97,10 +98,13 @@ int main(void)
 {
     WDTCTL = WDTPW + WDTHOLD;                 // Stop WDT
     UART_Setup();
+    duty = 0;
     PWM_Setup();
     ADC_Setup();
+
     while (1)
     {
+
         averager[7] = averager[6];
         averager[6] = averager[5];
         averager[5] = averager[4];
@@ -110,6 +114,7 @@ int main(void)
         averager[1] = averager[0];
         averager[0] = current_TEMP;
         average_TEMP = (averager[7] + averager[6] + averager[5] + averager[4]+ averager[3] + averager[2] + averager[1] + averager[0])/8;
+        compareTEMP();
         ADC12CTL0 |= ADC12SC;                   // Start sampling/conversion
         __bis_SR_register(LPM0_bits + GIE);
     }
@@ -125,9 +130,9 @@ __interrupt void ADC12_ISR(void)
   case  2: break;                           // Vector  2:  ADC overflow
   case  4: break;                           // Vector  4:  ADC timing overflow
   case  6:                                  // Vector  6:  ADC12IFG0
-      UCA1TXBUF = average_TEMP;
-      inputTEMP();
-    __bic_SR_register_on_exit(LPM0_bits);   // Exit active CPU
+        UCA1TXBUF = average_TEMP;
+        inputTEMP();
+        __bic_SR_register_on_exit(LPM0_bits);   // Exit active CPU
     break;
   case  8: break;                           // Vector  8:  ADC12IFG1
   case 10: break;                           // Vector 10:  ADC12IFG2
